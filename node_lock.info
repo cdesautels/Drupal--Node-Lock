@@ -1,0 +1,5 @@
+; $Id$ 
+name = Node Lock
+description = Locks out the deletion of selected nodes.
+core = 6.x
+version = 6.x-1.1

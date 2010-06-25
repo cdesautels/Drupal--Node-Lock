@@ -1,0 +1,137 @@
+<?php 
+// $Id$ 
+/** 
+ * @file 
+ * Locks out the deletion of selected nodes. 
+ */ 
+
+function node_lock_menu() {
+  $items = array();
+    $items['admin/content/node-lock'] = array(
+      'title' => 'Node lock',
+      'description' => 'Lock out the deletion of selected nodes.',
+      'page callback' => 'node_lock_admin',
+      'access arguments' => array('Administer node lock')
+    );
+    return $items;
+}
+function node_lock_perm() {
+  return array('Administer node lock');
+}
+
+
+/*	=====================================================================
+	NODE LOCK
+	These are hooks that lock out selected nodes
+	=====================================================================*/
+function node_lock_form_alter(&$form, $form_state, $form_id) {
+  // Protect certain nodes from deletion, both the single node delete and the multinode delete on the content admin page.
+  // The confirmation forms are intercepted and if a dissallowed node is in play the submit button is replaced with a message.
+  if (($form['#id'] == 'node-admin-content' && $form['operation']['#value'] == 'delete') || $form['#id'] == 'node-delete-confirm') {
+	// A deletion is begin attempted set the array of unallowed nodes
+    $undeletableNodes = _node_lock_loadSettings('use_node_ids');
+	if (count($undeletableNodes) >= 1) {
+	  // Single node deletion
+	  if ($form['#id'] == 'node-delete-confirm') {
+	    if (in_array($form['nid']['#value'], $undeletableNodes)) {
+	      $form['description'] = array (
+	        '#value' => '<p class="nonDeletionWarning">This node cannot be deleted.<p>'
+	      );
+	      $form['actions'] = array (
+	        '#value' => ''
+	      );
+	    }
+	  }
+	  // Multinode deletion
+	  if ($form['#id'] == 'node-admin-content' && $form['operation']['#value'] == 'delete') {
+	    // The node array of the form is copied to a new array otherwise the array_shift breaks the display
+	    $nodesIntheForm = $form['nodes'];
+	    for ($i=1; $i<=3; $i++) {
+	      // Remove the three first key/values ('#prefix', '#suffix', '#tree')
+		  array_shift($nodesIntheForm);
+		}
+		// Now check for the presence of a disallowed node.
+		foreach ($nodesIntheForm as $n) {
+	      if (in_array($n['#value'],$undeletableNodes)) {
+	        $form['description'] = array (
+	          '#value' => '<p class="nonDeletionWarning">You have selected one or more nodes that cannot be deleted.<p>'
+	        );
+	        $form['actions'] = array (
+	          '#value' => ''
+	        );
+			break;
+	      }
+		}
+	  }
+	}
+	
+  }
+}
+
+/*  ===============
+    ADMIN FUNCTIONS
+    ===============*/
+function node_lock_admin() {
+  if (_node_lock_loadSettings('restricted')) {
+	global $user;
+	if ($user->uid == 1) {
+	  $output = drupal_get_form('node_lock_admin_form');
+	} else {
+	  $output = 'These settings are restricted to the Super Admin user.';
+	}
+  } else {
+	$output = drupal_get_form('node_lock_admin_form');
+  }
+  return $output;
+}
+
+function node_lock_admin_form($form_state) {
+  $form['node_lock_wrapper'] = array(
+  '#type' => 'fieldset',
+  '#title' => t('<h3>Node Lock</h3>'),
+  '#collapsible' => FALSE,
+  '#tree' => TRUE,
+  '#description' => t('The nodes specified here will not be able to be deleted. These nodes have been locked for a good reason, be sure you\'re aware of all the consquences if you remove one from here and then delete it.')
+);
+  $form['node_lock_wrapper']['node_ids'] = array(
+    '#type' => 'textarea',
+    '#default_value' => _node_lock_loadSettings('show_node_ids'),
+    '#title' => t('Node IDs'),
+    '#description' => t('Insert node ids, seperated by commas.')
+  );
+  $form['node_lock_wrapper']['restricted'] = array(
+    '#type' => 'checkbox',
+    '#default_value' => _node_lock_loadSettings('restricted'),
+    '#title' => t('Restrict to Super Administrator'),
+    '#description' => t('This will restrict these settings to the Super Admin user, irregardless of what the modules permissions are set to. Just an extra layer of protections for a dangerous module to tinker with.')
+  );
+  
+  $form['submit'] = array('#type' => 'submit', '#value' => t('Save'));
+  return $form;
+}
+function node_lock_admin_form_validate($form, &$form_state) {
+  
+}
+
+function node_lock_admin_form_submit($form, &$form_state) {
+  $settings['node_ids'] = $form_state['values']['node_lock_wrapper']['node_ids'];
+  $settings['restricted'] = $form_state['values']['node_lock_wrapper']['restricted'];
+  $output = serialize($settings);
+  variable_set('node_lock_settings', $output);
+}
+/*  =================
+    UTILITY FUNCTIONS
+    =================*/
+function _node_lock_loadSettings($setting) {
+  $node_lock_settings = unserialize(variable_get('node_lock_settings',null));
+  if ($setting == 'show_node_ids') {
+	// Show the ids in the settings panel
+	return $node_lock_settings['node_ids'];
+  } else if ($setting == 'use_node_ids') {
+	// Use the ids to block deletion
+	return explode(',', $node_lock_settings['node_ids']);
+  } else if ($setting == 'restricted') {
+	// Both show in settings and use the restricted setting.
+	return $node_lock_settings['restricted'];
+  }
+}
